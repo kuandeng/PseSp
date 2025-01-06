@@ -11,7 +11,7 @@ end
 function checkConv_pre(H, d_old, tol)
     d, Y = eigen(Symmetric(H))
 
-    # get largest rize values
+    # get largest ritz values
     idx = sortperm(d, rev=true)
     d = d[idx]
     isconv = (abs(d[1]/d_old-1) < tol)
@@ -21,7 +21,7 @@ end
 function checkConv(H, β, tol)
     d, Y = eigen(Symmetric(H))
     res = abs.(β*Y[end, :])
-    # get largest rize values
+    # get largest ritz values
     idx = sortperm(d, rev=true)
     d = d[idx]
     res = res[idx]
@@ -31,7 +31,7 @@ function checkConv(H, β, tol)
 end
 
 
-# copy x to workx and fill the rest with zeros
+# copy the elements of x to workx and pad the remaining entries with zeros
 function copytoFill0!(workx::AbstractVector{T}, x::AbstractVector{T}) where T
     nx = length(x)
     @views begin
@@ -56,7 +56,7 @@ function orthogonalize!(U::AbstractVecOrMat{T}, numax::Int, w::AbstractVector{T}
 end
 
 
-# reorthogonalize w to U, note that nw and numax are not equal
+# reorthogonalize vector w against the basis U. the length of w (nw) and U (numax) are not the same.
 function simpleReorthogonalize!(U::AbstractVecOrMat{T}, numax::Int, w::AbstractVector{T}, nw::Int, work::AbstractVector{T}, workorth::AbstractVector{T}) where T
     nw_next = max(nw, numax)
     nU = size(U, 2) 
@@ -74,7 +74,7 @@ function simpleReorthogonalize!(U::AbstractVecOrMat{T}, numax::Int, w::AbstractV
     end 
 end
 
-# axpy function with different length x and y.
+# perform the axpy operation. the vectors x and y may have different lengths.
 function axpyDL!(α::T1, x::AbstractVector{T}, y::AbstractVector{T}, worky::AbstractVector{T}) where {T, T1}
     nx = length(x)
     ny = length(y)
@@ -97,7 +97,7 @@ function innerproductDL(x::AbstractVector{T}, y::AbstractVector{T}) where T
 end
 
 
-# inverse Lanczos method, be careful with the different 
+# inverse Lanczos method: pay attention to dimension mismatches
 function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int, p::Int, tol::AbstractFloat, tolSolve::AbstractFloat,reOrth::Bool, stopCrit::String,  U::AbstractMatrix{T}, worku::AbstractVector{T}, workv::AbstractVector{T}, workw::AbstractVector{T}, workorth::AbstractVector{T}, H::AbstractMatrix{T1}) where {T<:FloatOrComplex, T1<:AbstractFloat}
     N = op.N
     sizeU = 1
@@ -125,8 +125,6 @@ function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int
             α = real(innerproductDL(U[1:numax, jj], w))
 
             if justRestarted
-                # # println("nw = ", nw)
-                # nw = length(w)
                 # w .-= U[1:nw, 1:jj]*((U[1:nw, 1:jj]'*w))
                 # # w .-= U[1:nw, 1:jj]*((U[1:nw, 1:jj]'*w))
                 u = orthogonalize!(U[1:numax, 1:jj], numax, w, length(w), worku, workorth)
@@ -171,8 +169,8 @@ function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int
         end
 
         if mm == maxit
-            # maximum iteration times reached
-            # @warn "please try more iteration"
+            # maximum number of iterations reached.
+            # @warn "consider increasing the maximum number of iterations"
             return pse_z, numax
         else 
             # restart size

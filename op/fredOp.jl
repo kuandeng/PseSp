@@ -1,5 +1,5 @@
 mutable struct FredOp{T<:FloatOrComplex} <: Op{T}
-    fred::Matrix{T} # matrix representation of Fredholm convolution integral operator
+    fred::Matrix{T} # matrix representation of Fredholm integral operator
     n::Int
     N::Int
     dom::Interval

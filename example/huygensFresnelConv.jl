@@ -9,10 +9,10 @@ dom_u = Interval{Float64}(-1.0, 1.0)
 kernel =  x->sqrt(16.0im)*exp(-16.0im*pi*x^2)
 kernelCoeffs = T.(Fun(kernel, Ultraspherical(0.5, -2..2)).coefficients) 
 
-# preallocated dimension N, this gives a arrow shaped operator represent.
+# preallocated dimension N, resulting in an arrow-shaped representation of the operator
 N = 2*length(kernelCoeffs)
 
-# for speedup, since unitary transformation do not change the resolvent norm
+# for speedup: unitary transformations do not affect the resolvent norm
 isSchur = true
 
 # Huygens Fresnel operator
@@ -32,7 +32,7 @@ pty = Vector(range(ay[1], ay[2], npty))
 # parameters for Lanczos iteration
 option = Options(20, 1, 1e-3, 2.2e-16, "adaptive", false)
 
-# since the arrow shaped operator represent, the dof during the Lanczos iteration always equals to N.
+# since the operator has an arrow-shaped representation, degrees of freedom (DOF) during the Lanczos iteration always equal N
 u0 = ones(T, N)
 u0 = u0/norm(u0)
 

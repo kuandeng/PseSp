@@ -1,8 +1,8 @@
 
 # defintion of Volterra integral operator, with preallocated matrix dimension n
 mutable struct VoltConvOp{T<:FloatOrComplex} <: Op{T}
-    volt::BandedMatrix{T} # matrix representation of Volterra integral operator
-    N::Int # preallocated matrix dimension n
+    volt::BandedMatrix{T} # matrix representation of Volterra convolution operator
+    N::Int 
     dom::Interval
     side::Char
     shift::T

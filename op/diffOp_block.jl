@@ -1,15 +1,16 @@
-# defintion of block differential operator, with preallocated matrix dimension N
+# Definition of a block differential operator with preallocated matrix dimension N.
 mutable struct DiffOpBlock{T<:FloatOrComplex} <: Op{T}
-    diff::BandedMatrix{T} # matrix representation of differential operator form left basis to right basis
-    N::Int # preallocated matrix dimension N
-    blockSize::Int
-    dom::Interval 
-    diff_shift::BandedMatrix{T} # matrix representation of Identity operator form left basis to right basis
-    basisTransL::BandedMatrix{T} # transpose coefficients of left basis to coefficients of normalized Legendre basis
-    basisTransR::BandedMatrix{T} # transpose coefficients of normalized Legendre basis to coefficients of right basis
-    shift::T
-    qrData::GenBandedQrData{T}
+    diff::BandedMatrix{T}       # Matrix representation of the differential operator from the left basis to the right basis.
+    N::Int                      # Preallocated matrix dimension N.
+    blockSize::Int              # Size of each block in the block structure of the operator.
+    dom::Interval               # Domain of the operator.
+    diff_shift::BandedMatrix{T} # Matrix representation of the identity operator from the left basis to the right basis (used for shifting).
+    basisTransL::BandedMatrix{T} # Transformation matrix: converts coefficients of the left basis to coefficients in the normalized Legendre basis.
+    basisTransR::BandedMatrix{T} # Transformation matrix: converts coefficients in the normalized Legendre basis to the coefficients of the right basis.
+    shift::T                    # Shift value applied to the operator.
+    qrData::GenBandedQrData{T}  # QR decomposition data for adaptive QR
 end
+
 
 function DiffOpBlock(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs::Vector{<:Tuple{Vararg{Vector{T}}}}, bcType::String, dom::Interval, shift::T) where {T<:FloatOrComplex}
     L, R, L_shift, M_bRC, bu, bl = diffOpBlockMat(N, K, blockSize, map, coeffs, bcType, dom, T)

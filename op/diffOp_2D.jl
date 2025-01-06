@@ -1,17 +1,16 @@
-
- 
-# defintion of 2D differential operator, with preallocated matrix dimension N
+# Definition of a 2D differential operator with preallocated matrix dimension N.
 mutable struct DiffOp2D{T<:FloatOrComplex} <: Op{T}
-    diff2D::BandedMatrix{T} # matrix representation of 2D differential operator form left basis to right basis
-    N::Int # preallocated matrix dimension N
-    domx::Interval
-    domy::Interval
-    diff2D_shift::BandedMatrix{T} # matrix representation of Identity operator form left basis to right basis
-    basisTransL::BandedMatrix{T} # transpose coefficients of left basis to coefficients of normalized Legendre basis
-    basisTransR::BandedMatrix{T} # transpose coefficients of normalized Legendre basis to coefficients of right basis
-    shift::T
-    qrData::GenBandedQrData{T}
+    diff2D::BandedMatrix{T}  # Matrix representation of the 2D differential operator from the left basis to the right basis.
+    N::Int                   # Preallocated matrix dimension N.
+    domx::Interval           # Domain of the operator in the x-direction.
+    domy::Interval           # Domain of the operator in the y-direction.
+    diff2D_shift::BandedMatrix{T}  # Matrix representation of the identity operator from the left basis to the right basis (used for shifting).
+    basisTransL::BandedMatrix{T}   # Transformation matrix: converts coefficients of the left basis to coefficients in the normalized Legendre basis.
+    basisTransR::BandedMatrix{T}   # Transformation matrix: converts coefficients in the normalized Legendre basis to the coefficients of the right basis.
+    shift::T                  # Shift value applied to the operator.
+    qrData::GenBandedQrData{T} # QR decomposition data for adaptive QR
 end
+
 
 function DiffOp2D(n::Int, K::Int, rank::Int, coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}}, coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, bcType::String, bcOrder::Int, dom_x::Interval, dom_y::Interval, shift::T) where {T<:FloatOrComplex, T1}
     L, R, L_shift, M_bRC, bu, bl = diffOp2DMat(n, K, rank, coeffs_x, coeffs_y, bcType, bcOrder, dom_x, dom_y, T)
@@ -147,20 +146,6 @@ function diffOp2DMat(n::Int, K::Int, rank::Int,
 
 end
 
-
-
-
-# test advection diffusion 2D example, 0.05*\laplace u + du/dy
-
-
-
-# M_ultras2D = ultras2DMat(n+2, 2, rank, coeffs_x, coeffs_y, 1.0, 1.0, ComplexF64)
-# M_bRC, ~ = basisReCombMat(bcType, bcOrder, 100, T)
-# M_bRC = kron(M_bRC, M_bRC)
-
-# L, R, L_shift, M_bRC = diffOp2DMat(n, 2, 2, coeffs_x, coeffs_y, bcType, bcOrder, dom_x, dom_y, ComplexF64)
-
-# bu_max, bl_max, bu_tmax, bl_tmax, bu_reOrdered, bl_reOrdered =  bandWidth2D(n, 2, 2, coeffs_x, coeffs_y, 0, 2)
 
 
 

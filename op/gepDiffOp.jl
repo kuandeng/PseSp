@@ -1,16 +1,16 @@
-
-# defintion of generalized differential operator, with preallocated matrix dimension N
+# Definition of a generalized differential operator (GEP), with preallocated matrix dimension N.
 mutable struct GepDiffOp{T<:FloatOrComplex} <: Op{T}
-    diff_L::BandedMatrix{T} # matrix representation of differential operator form left basis to right basis
-    N::Int # preallocated matrix dimension N
-    dom::Interval 
-    isConj::Bool
-    diff_shift::BandedMatrix{T} # matrix representation of right differential operator
-    basisTransL::BandedMatrix{T} # 
-    basisTransR::BandedMatrix{T} # 
-    shift::T
-    qrData::GenBandedQrData{T}
+    diff_L::BandedMatrix{T}       # Matrix representation of the left differential operator from the left basis to the right basis.
+    N::Int                        # Preallocated matrix dimension N.
+    dom::Interval                 # Domain of the operator.
+    isConj::Bool                  # Flag indicating if the operator is conjugated.
+    diff_shift::BandedMatrix{T}   # Matrix representation of the right differential operator.
+    basisTransL::BandedMatrix{T}  # Transformation matrix: converts coefficients of the left basis to the normalized Legendre basis.
+    basisTransR::BandedMatrix{T}  # Transformation matrix: converts coefficients of the normalized Legendre basis to the right basis.
+    shift::T                      # Shift value applied to the operator.
+    qrData::GenBandedQrData{T}    # QR decomposition data for adaptive QR.
 end
+
 
 function GepDiffOp(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vector{T1}}}, coeffs_R::Tuple{Vararg{Vector{T1}}}, bcType_L::String, bcOrder_L::Int, dom::Interval, shift::T, isConj::Bool) where {T1, T<:FloatOrComplex}
     if isConj

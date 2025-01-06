@@ -1,13 +1,11 @@
-
-
- 
-# defintion of differential operator on unbound domain, with preallocated matrix dimension N
+# Definition of a differential operator on an unbounded domain, with preallocated matrix dimension N.
 mutable struct DiffOpInf2D{T<:FloatOrComplex} <: Op{T}
-    diff::BandedMatrix{T} # matrix representation of differential operator form left basis to right basis
-    N::Int # preallocated matrix dimension N 
-    shift::T
-    qrData::BandedQrData{T}
+    diff::BandedMatrix{T}       # Matrix representation of the differential operator from the left basis to the right basis.
+    N::Int                      # Preallocated matrix dimension N.
+    shift::T                    # Shift value applied to the operator.
+    qrData::BandedQrData{T}     # QR decomposition data for adaptive QR
 end
+
 
 function DiffOpInf2D(n::Int,  rank::Int, coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}}, coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, shift::T) where {T<:FloatOrComplex, T1}
     L, bu, bl = diffOpInf2DMat(n, rank, coeffs_x, coeffs_y, T)
