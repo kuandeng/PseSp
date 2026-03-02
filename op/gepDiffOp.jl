@@ -12,11 +12,27 @@ mutable struct GepDiffOp{T<:FloatOrComplex} <: Op{T}
 end
 
 
-function GepDiffOp(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vector{T1}}}, coeffs_R::Tuple{Vararg{Vector{T1}}}, bcType_L::String, bcOrder_L::Int, dom::Interval, shift::T, isConj::Bool) where {T1, T<:FloatOrComplex}
+function GepDiffOp(
+    N::Int,
+    K_L::Int,
+    K_R::Int,
+    coeffs_L::Tuple{Vararg{Vector{T1}}},
+    coeffs_R::Tuple{Vararg{Vector{T1}}},
+    bcType_L::String,
+    bcOrder_L::Int,
+    dom::Interval,
+    shift::T,
+    isConj::Bool;
+    coeff_basis::Symbol = :chebT,
+) where {T1, T<:FloatOrComplex}
     if isConj
-        L, transR, L_shift, transL, bu, bl = gepDiffOpConjMat(N, K_L, K_R, coeffs_L, coeffs_R, bcType_L, bcOrder_L, dom, T)
+        L, transR, L_shift, transL, bu, bl = gepDiffOpConjMat(
+            N, K_L, K_R, coeffs_L, coeffs_R, bcType_L, bcOrder_L, dom, T; coeff_basis = coeff_basis
+        )
     else
-        L, transR, L_shift, transL, bu, bl = gepDiffOpMat(N, K_L, K_R, coeffs_L, coeffs_R, bcType_L, bcOrder_L, dom, T)
+        L, transR, L_shift, transL, bu, bl = gepDiffOpMat(
+            N, K_L, K_R, coeffs_L, coeffs_R, bcType_L, bcOrder_L, dom, T; coeff_basis = coeff_basis
+        )
     end
     L = BandedMatrix(L, (bl, bu))
     transR = BandedMatrix(transR)
@@ -51,7 +67,18 @@ end
 
 
 
-function gepDiffOpMat(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vector{T1}}}, coeffs_R::Tuple{Vararg{Vector{T1}}}, bcType_L::String, bcOrder_L::Int, dom::Interval,T::Type{T2}) where {T1, T2<:FloatOrComplex}
+function gepDiffOpMat(
+    N::Int,
+    K_L::Int,
+    K_R::Int,
+    coeffs_L::Tuple{Vararg{Vector{T1}}},
+    coeffs_R::Tuple{Vararg{Vector{T1}}},
+    bcType_L::String,
+    bcOrder_L::Int,
+    dom::Interval,
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex}
 
     # computing bandwidth for both side
     bu_L, bl_L = bandWidth_shift(K_L, coeffs_L, coeffs_R)
@@ -66,24 +93,36 @@ function gepDiffOpMat(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vector{
 
     scale = 2/(dom.right - dom.left)
     # construct L
-    L = ultrasMat(tempN, K_L, scale, coeffs_L, T)*M_bRC
+    L = ultrasMat(tempN, K_L, scale, coeffs_L, T; coeff_basis = coeff_basis) * M_bRC
     L = L[1:N+bl_L+bl_bRC, 1:N]
 
     # construct shift L
-    L_shift = ultrasMat(tempN, K_L, scale, coeffs_R, T)*M_bRC
+    L_shift = ultrasMat(tempN, K_L, scale, coeffs_R, T; coeff_basis = coeff_basis) * M_bRC
     L_shift = L_shift[1:N+bl_R+bl_bRC, 1:N]
 
     # construct transR
-    transR = ultrasMat(N, K_R, K_L, scale, coeffs_R, T)
+    transR = ultrasMat(N, K_R, K_L, scale, coeffs_R, T; coeff_basis = coeff_basis)
 
     # construct transL
     M_bRC, ~ = basisReCombMat(bcType_L, bcOrder_L, N, T)
-    transL = spdiagm(N+bl_bRC, N+bl_bRC, sqrt.(Vector{T}(2 ./(2*(0:N-1+bl_bRC).+1))))*M_bRC
+    idxL = T.(0:N-1+bl_bRC)
+    transL = spdiagm(N + bl_bRC, N + bl_bRC, sqrt.(T(2) ./ (T(2) .* idxL .+ one(T)))) * M_bRC
     return L, transR, L_shift, transL, bu_L+bu_bRC, bl_L+bl_bRC
 end
 
 
-function gepDiffOpConjMat(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vector{T1}}}, coeffs_R::Tuple{Vararg{Vector{T1}}}, bcType_L::String, bcOrder_L::Int, dom::Interval,T::Type{T2}) where {T1, T2<:FloatOrComplex}
+function gepDiffOpConjMat(
+    N::Int,
+    K_L::Int,
+    K_R::Int,
+    coeffs_L::Tuple{Vararg{Vector{T1}}},
+    coeffs_R::Tuple{Vararg{Vector{T1}}},
+    bcType_L::String,
+    bcOrder_L::Int,
+    dom::Interval,
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex}
 
     # computing bandwidth for both side
     bu_L, bl_L = bandWidth_shift(K_L, coeffs_L, coeffs_R)
@@ -98,29 +137,28 @@ function gepDiffOpConjMat(N::Int, K_L::Int, K_R::Int, coeffs_L::Tuple{Vararg{Vec
 
     scale = 2/(dom.right - dom.left)
     # construct L
-    L = ultrasMat(tempN, K_L, scale, coeffs_L, T)*M_bRC
+    L = ultrasMat(tempN, K_L, scale, coeffs_L, T; coeff_basis = coeff_basis) * M_bRC
     L = L[1:N+bl_L+bl_bRC, 1:N]
 
     # construct shift L
-    L_shift = ultrasMat(tempN, K_L, scale, coeffs_R, T)*M_bRC
+    L_shift = ultrasMat(tempN, K_L, scale, coeffs_R, T; coeff_basis = coeff_basis) * M_bRC
     L_shift = L_shift[1:N+bl_R+bl_bRC, 1:N]
 
     # construct transR
-    transR = convertMat(N, 0, K_L, T)*spdiagm(N, N, sqrt.(Vector{T}((2*(0:N-1).+1)/2)))
+    idxR = T.(0:N-1)
+    transR = convertMat(N, 0, K_L, T) * spdiagm(N, N, sqrt.((T(2) .* idxR .+ one(T)) ./ T(2)))
 
 
     # construct transL
     bu_R_transL, bl_R_transL =  bandWidth(K_R, coeffs_R)
     tempN_transL = N + 5*(bl_R_transL + bl_bRC) + bl_bRC
-    M_ultras_transL = ultrasMat(tempN_transL, 0, K_R, scale, coeffs_R, T)
+    M_ultras_transL = ultrasMat(tempN_transL, 0, K_R, scale, coeffs_R, T; coeff_basis = coeff_basis)
     M_bRC, ~ = basisReCombMat(bcType_L, bcOrder_L, tempN_transL-bl_bRC, T)
     transL = M_ultras_transL*M_bRC
     transL = transL[1:N+bl_R_transL+bl_bRC, 1:N]
 
     return L, transR, L_shift, transL, bu_L+bu_bRC, bl_L+bl_bRC
 end
-
-
 
 
 

@@ -12,8 +12,17 @@ mutable struct DiffOp{T<:FloatOrComplex} <: Op{T}
 end
 
 
-function DiffOp(N::Int, K::Int, coeffs::Tuple{Vararg{Vector{T}}}, bcType::String, bcOrder::Int, dom::Interval, shift::T) where {T<:FloatOrComplex}
-    L, R, L_shift, M_bRC, bu, bl = diffOpMat(N, K, coeffs, bcType, bcOrder, dom, T)
+function DiffOp(
+    N::Int,
+    K::Int,
+    coeffs::Tuple{Vararg{Vector{T}}},
+    bcType::String,
+    bcOrder::Int,
+    dom::Interval,
+    shift::T;
+    coeff_basis::Symbol = :chebT,
+) where {T<:FloatOrComplex}
+    L, R, L_shift, M_bRC, bu, bl = diffOpMat(N, K, coeffs, bcType, bcOrder, dom, T; coeff_basis = coeff_basis)
     L = BandedMatrix(L, (bl, bu))
     R = BandedMatrix(R) 
     L_shift = BandedMatrix(L_shift)
@@ -94,7 +103,7 @@ end
 diffMat(N::Int, k::Int, T::Type{T1}) where {T1<:FloatOrComplex} = diffMat(N, 0, k, T)
 
 
-function multMat(N::Int, k::Int, coeffs::AbstractVector{T1}, T::Type{T2}) where {T1, T2<:FloatOrComplex}
+function multMat(N::Int, k::Int, coeffs::AbstractVector{T1}, T::Type{T2}; coeff_basis::Symbol = :ultra) where {T1, T2<:FloatOrComplex}
     if N < length(coeffs)
         error("N should be larger than the length of coeffs")
     end
@@ -107,21 +116,37 @@ function multMat(N::Int, k::Int, coeffs::AbstractVector{T1}, T::Type{T2}) where 
         d1 = zeros(T, 2*N-1)
         d2 = zeros(T, 2*N-1)
         for i = 1:2*N-1
-            d1[i] = i/2/(lam+i-1)
-            d2[i] = (2lam+i-1)/2/(lam+i)
+            ti = T(i)
+            d1[i] = (ti / T(2)) / (lam + ti - one(T))
+            d2[i] = ((T(2) * lam + ti - one(T)) / T(2)) / (lam + ti)
         end
         Mx = spdiagm(2N, 2N, -1 =>d1, 1 => d2)
         coeffs = [coeffs;zeros(T, N-m)]
-        coeffs = convertMat(N, 0, k, T)*coeffs
-        M0 = spdiagm(2N, 2N, ones(T, 2N))
-        M1 = 2lam*Mx
-        M = coeffs[1]*M0+coeffs[2]*M1
-        for i = 1:m-2
-            M2 = 2*(lam+i)/(i+1)*Mx*M1-(i+2lam-1)/(i+1)*M0
-            M = M + coeffs[i+2]*M2
-            M0 = M1
-            M1 = M2
-        end    
+        if coeff_basis == :ultra
+            coeffs = convertMat(N, 0, k, T)*coeffs
+            M0 = spdiagm(2N, 2N, ones(T, 2N))
+            M1 = 2lam*Mx
+            M = coeffs[1]*M0+coeffs[2]*M1
+            for i = 1:m-2
+                M2 = 2*(lam+i)/(i+1)*Mx*M1-(i+2lam-1)/(i+1)*M0
+                M = M + coeffs[i+2]*M2
+                M0 = M1
+                M1 = M2
+            end
+        elseif coeff_basis == :chebT
+            # Chebyshev-T recurrence: T_{n+1}(x) = 2x*T_n(x) - T_{n-1}(x)
+            M0 = spdiagm(2N, 2N, ones(T, 2N))
+            M1 = Mx
+            M = coeffs[1]*M0+coeffs[2]*M1
+            for i = 1:m-2
+                M2 = 2*Mx*M1 - M0
+                M = M + coeffs[i+2]*M2
+                M0 = M1
+                M1 = M2
+            end
+        else
+            throw(ArgumentError("unsupported coeff_basis=$coeff_basis; use :ultra or :chebT"))
+        end
     end
     return M[1:N,1:N]
 end
@@ -136,10 +161,24 @@ function basisReCombMat(bcType::String, bcOrder::Int, N::Int, T::Type{T1}) where
         
     end
 
+    if (bcType == "Periodic" && bcOrder == 2)
+        d2 = zeros(T, N)
+        for j = 1:N
+            n = j - 1
+            if isodd(n)
+                d2[j] = -one(T)
+            else
+                d2[j] = -T(n*(n+1))/T((n+2)*(n+3))
+            end
+        end
+        return spdiagm(N+2, N, -2 => d2, 0 => ones(T, N)), 0, 2
+    end
+
     if (bcType == "Diri" && bcOrder == 4)
-        d2 = -(4.0.*(1:N) .+ 6)./(2.0.*(1:N) .+ 5)
-        d4 = (2.0.*(1:N) .+ 1)./(2.0.*(1:N) .+ 5)
-        scale = sqrt.(2.0 .*(2.0 .*(1:N) .+ 1).^2 .*(2.0 .*(1:N) .+ 3))
+        n = T.(1:N)
+        d2 = -(T(4) .* n .+ T(6)) ./ (T(2) .* n .+ T(5))
+        d4 = (T(2) .* n .+ one(T)) ./ (T(2) .* n .+ T(5))
+        scale = sqrt.(T(2) .* (T(2) .* n .+ one(T)).^2 .* (T(2) .* n .+ T(3)))
         # return spdiagm(N+4, N, -4 => d4, -2 => d2, 0 => ones(T, N))*spdiagm(N, N, 1.0 ./ scale), 0, 4
         return spdiagm(N+4, N, -4 => d4, -2 => d2, 0 => ones(T, N)), 0, 4
     end
@@ -150,7 +189,7 @@ function basisReCombMat(bcType::String, bcOrder::Int, N::Int, T::Type{T1}) where
     end
 
     if (bcType == "DiriR" && bcOrder == 1)
-        return spdiagm(N+1, N, -1 => -1.0*ones(T, N), 0 => ones(T, N)), 0, 1
+        return spdiagm(N+1, N, -1 => -ones(T, N), 0 => ones(T, N)), 0, 1
     end
 end
 
@@ -175,25 +214,51 @@ end
 bandWidth_shift(K::Int, coeffs::Tuple{Vararg{Vector{T}}}) where T = bandWidth_shift(K, coeffs, (ones(T, 1), ))
 
 
-function ultrasMat(N::Int, K1::Int, K2::Int, scale::T3, coeffs::Tuple{Vararg{Vector{T1}}}, T::Type{T2}) where {T1, T2<:FloatOrComplex, T3}
+function ultrasMat(
+    N::Int,
+    K1::Int,
+    K2::Int,
+    scale::T3,
+    coeffs::Tuple{Vararg{Vector{T1}}},
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex, T3}
     M_ultras = spzeros(T, N, N)
     for k = K1:K1+size(coeffs, 1)-1
-        M_ultras = M_ultras + convertMat(N, k, K2, T)*multMat(N, k, scale^k*coeffs[k-K1+1], T)*diffMat(N, K1, k, T)
+        M_ultras = M_ultras + convertMat(N, k, K2, T) * multMat(
+            N, k, scale^k * coeffs[k - K1 + 1], T; coeff_basis = coeff_basis
+        ) * diffMat(N, K1, k, T)
     end
     return M_ultras
 end 
 
 
-ultrasMat(N::Int, K::Int, scale::T3, coeffs::Tuple{Vararg{Vector{T1}}}, T::Type{T2}) where {T1, T2<:FloatOrComplex, T3} = ultrasMat(N, 0, K, scale, coeffs, T)
+ultrasMat(
+    N::Int,
+    K::Int,
+    scale::T3,
+    coeffs::Tuple{Vararg{Vector{T1}}},
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex, T3} = ultrasMat(N, 0, K, scale, coeffs, T; coeff_basis = coeff_basis)
 
 
-function diffOpMat(N::Int, K::Int, coeffs::Tuple{Vararg{Vector{T1}}}, bcType::String, bcOrder::Int, dom::Interval, T::Type{T2}) where {T1, T2<:FloatOrComplex}
+function diffOpMat(
+    N::Int,
+    K::Int,
+    coeffs::Tuple{Vararg{Vector{T1}}},
+    bcType::String,
+    bcOrder::Int,
+    dom::Interval,
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex}
     bu, bl = bandWidth_shift(K, coeffs)
     ~, bu_bRC, bl_bRC = basisReCombMat(bcType, bcOrder, 10, T)
     tempN = N+5*(bl + bl_bRC)+bl_bRC 
 
     scale = 2/(dom.right - dom.left)
-    M_ultras = ultrasMat(tempN, K, scale, coeffs, T)
+    M_ultras = ultrasMat(tempN, K, scale, coeffs, T; coeff_basis = coeff_basis)
 
     M_bRC, ~ = basisReCombMat(bcType, bcOrder, tempN-bl_bRC, T)
 
@@ -206,12 +271,15 @@ function diffOpMat(N::Int, K::Int, coeffs::Tuple{Vararg{Vector{T1}}}, bcType::St
     L_shift = L_shift[1:N+bl_bRC, 1:N]
 
     # construct R
-    R = convertMat(N, 0, K, T)*spdiagm(N, N, sqrt.(Vector{T}((2*(0:N-1).+1)/2)))
+    idxR = T.(0:N-1)
+    wR = sqrt.((T(2) .* idxR .+ one(T)) ./ T(2))
+    R = convertMat(N, 0, K, T) * spdiagm(N, N, wR)
 
     # construct M_bRC
     M_bRC, ~ = basisReCombMat(bcType, bcOrder, N, T)
-    M_bRC = spdiagm(N+bl_bRC, N+bl_bRC, sqrt.(Vector{T}(2 ./(2*(0:N-1+bl_bRC).+1))))*M_bRC
+    idxL = T.(0:N-1+bl_bRC)
+    wL = sqrt.(T(2) ./ (T(2) .* idxL .+ one(T)))
+    M_bRC = spdiagm(N+bl_bRC, N+bl_bRC, wL) * M_bRC
 
     return L, R, L_shift, M_bRC, bu+bu_bRC, bl+bl_bRC
 end
-

@@ -78,6 +78,57 @@ for (fname, elty) in ((:dtbsv_,:Float64),
     end
 end
 
+# Pure-Julia fallback for high-precision banded triangular solve.
+# The banded storage follows BLAS TB format with upper bandwidth `k`.
+function tbsv!(uplo::AbstractChar, trans::AbstractChar, diag::AbstractChar, k::Int, A::AbstractMatrix{T}, x::AbstractVector{T}) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    chkuplo(uplo)
+    require_one_based_indexing(A, x)
+    n = size(A, 2)
+    if n != length(x)
+        throw(DimensionMismatch(lazy"size of A is $n != length(x) = $(length(x))"))
+    end
+    if uplo != 'U'
+        throw(ArgumentError("BigFloat tbsv! currently supports uplo='U' only"))
+    end
+    if !(diag == 'N' || diag == 'U')
+        throw(ArgumentError("diag must be 'N' or 'U'"))
+    end
+
+    if trans == 'N'
+        @inbounds for j = n:-1:1
+            s = x[j]
+            i2 = min(n, j + k)
+            for i = j + 1:i2
+                s -= A[k + 1 + j - i, i] * x[i]
+            end
+            if diag == 'N'
+                s /= A[k + 1, j]
+            end
+            x[j] = s
+        end
+    elseif trans == 'T' || trans == 'C'
+        @inbounds for j = 1:n
+            s = x[j]
+            i1 = max(1, j - k)
+            for i = i1:j-1
+                aij = A[k + 1 + i - j, j]
+                s -= (trans == 'C' ? conj(aij) : aij) * x[i]
+            end
+            if diag == 'N'
+                ajj = A[k + 1, j]
+                s /= (trans == 'C' ? conj(ajj) : ajj)
+            end
+            x[j] = s
+        end
+    else
+        throw(ArgumentError("trans must be 'N', 'T' or 'C'"))
+    end
+    x
+end
+
+tbsv(uplo::AbstractChar, trans::AbstractChar, diag::AbstractChar, k::Int, A::AbstractMatrix{T}, x::AbstractVector{T}) where {T<:Union{BigFloat,Complex{BigFloat}}} =
+    tbsv!(uplo, trans, diag, k, A, copy(x))
+
 # copy banded matrix with a shift diagonal matrix
 function sbcopy!(X::Matrix{T}, Y::Matrix{T}, z::T, bu::Int, bl::Int, m::Int, n::Int) where T    
     @inbounds @views begin
@@ -185,6 +236,27 @@ for (larf, elty) in
     end
 end
 
+function gbaqrf!(A::Matrix{T}, A_shift::Matrix{T}, workA::Matrix{T}, workbu, bu::Int, bl::Int, bu_shift::Int, bl_shift::Int, z::T, worky::Vector{T}, n::Int, ny::Int, qrStep::Int, n_next::Int, tau::Vector{T}, refl::Matrix{T}, workH::Vector{T}) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    @inbounds @views begin
+        if qrStep < n_next
+            sbcopy!(A, workA, A_shift, z, bu, bl, bu_shift, bl_shift, qrStep + 1 + workbu, n_next + workbu)
+        end
+        worky[max(ny + 1, n + 1 + bl):n_next + bl] .= zero(T)
+
+        for i = qrStep + 1:n_next
+            refl[1:end, i] = workA[workbu + 1:workbu + bl + 1, i]
+            v = refl[1:end, i]
+            tau[i] = larfg_generic!(v)
+            larf_slanted_left!(workA, workbu, bl, i, v, conj(tau[i]))
+        end
+
+        for i = n + 1:n_next
+            larf_left_vector!(worky[i:i + bl], refl[1:end, i], conj(tau[i]))
+        end
+    end
+    return max(qrStep, n_next)
+end
+
 # generalized  banded matrix adaptive qr solve 
 function baqsv!(A::Matrix{T}, N::Int, bu::Int, bl::Int, y::AbstractVector{T}, z::T, qrStep::Int, tau::Vector{T}, refl::Matrix{T}, workA::Matrix{T}, worky::Vector{T}, workH::Vector{T}, tolSolve::AbstractFloat) where T
     @inbounds @views begin
@@ -267,6 +339,83 @@ for (larf, elty) in
         return max(qrStep, n_next)
         end
     end
+end
+
+function baqrf!(A::Matrix{T}, workA::Matrix{T}, workbu, bu::Int, bl::Int, z::T, worky::Vector{T}, n::Int, ny::Int, qrStep::Int, n_next::Int, tau::Vector{T}, refl::Matrix{T}, workH::Vector{T}) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    @inbounds @views begin
+        if qrStep < n_next
+            sbcopy!(A, workA, z, bu, bl, qrStep + 1 + workbu, n_next + workbu)
+        end
+        worky[max(ny + 1, n + 1 + bl):n_next + bl] .= zero(T)
+
+        for i = qrStep + 1:n_next
+            refl[1:end, i] = workA[workbu + 1:workbu + bl + 1, i]
+            v = refl[1:end, i]
+            tau[i] = larfg_generic!(v)
+            larf_slanted_left!(workA, workbu, bl, i, v, conj(tau[i]))
+        end
+
+        for i = n + 1:n_next
+            larf_left_vector!(worky[i:i + bl], refl[1:end, i], conj(tau[i]))
+        end
+    end
+    return max(qrStep, n_next)
+end
+
+# Generic (BigFloat) Householder reflector in LAPACK larfg! storage:
+# overwrite v so that v[1] = 1 and return tau.
+function larfg_generic!(v::AbstractVector{T}) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    n = length(v)
+    n <= 1 && return zero(T)
+
+    α = v[1]
+    xnorm = norm(v[2:end])
+    if xnorm == 0 && imag(α) == 0
+        return zero(T)
+    end
+
+    RT = real(T)
+    sgn = real(α) == 0 ? one(RT) : sign(real(α))
+    βr = -sgn * hypot(abs(α), xnorm)
+    β = T(βr)
+    τ = (β - α) / β
+    denom = α - β
+
+    @inbounds for i in 2:n
+        v[i] /= denom
+    end
+    v[1] = one(T)
+    return τ
+end
+
+# Apply C <- (I - tau*v*v')*C to the slanted banded-storage panel used by baqrf!.
+function larf_slanted_left!(workA::AbstractMatrix{T}, workbu::Int, bl::Int, i::Int, v::AbstractVector{T}, tau::T) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    m = bl + 1
+    @inbounds for j in 0:workbu
+        row0 = workbu + 1 - j
+        col = i + j
+        dotv = zero(T)
+        for r in 1:m
+            dotv += conj(v[r]) * workA[row0 + r - 1, col]
+        end
+        fac = tau * dotv
+        for r in 1:m
+            workA[row0 + r - 1, col] -= v[r] * fac
+        end
+    end
+    return nothing
+end
+
+function larf_left_vector!(yseg::AbstractVector{T}, v::AbstractVector{T}, tau::T) where {T<:Union{BigFloat,Complex{BigFloat}}}
+    dotv = zero(T)
+    @inbounds for r in eachindex(v)
+        dotv += conj(v[r]) * yseg[r]
+    end
+    fac = tau * dotv
+    @inbounds for r in eachindex(v)
+        yseg[r] -= v[r] * fac
+    end
+    return nothing
 end
 
 

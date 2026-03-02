@@ -12,8 +12,22 @@ mutable struct DiffOp2D{T<:FloatOrComplex} <: Op{T}
 end
 
 
-function DiffOp2D(n::Int, K::Int, rank::Int, coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}}, coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, bcType::String, bcOrder::Int, dom_x::Interval, dom_y::Interval, shift::T) where {T<:FloatOrComplex, T1}
-    L, R, L_shift, M_bRC, bu, bl = diffOp2DMat(n, K, rank, coeffs_x, coeffs_y, bcType, bcOrder, dom_x, dom_y, T)
+function DiffOp2D(
+    n::Int,
+    K::Int,
+    rank::Int,
+    coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}},
+    coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}},
+    bcType::String,
+    bcOrder::Int,
+    dom_x::Interval,
+    dom_y::Interval,
+    shift::T;
+    coeff_basis::Symbol = :chebT,
+) where {T<:FloatOrComplex, T1}
+    L, R, L_shift, M_bRC, bu, bl = diffOp2DMat(
+        n, K, rank, coeffs_x, coeffs_y, bcType, bcOrder, dom_x, dom_y, T; coeff_basis = coeff_basis
+    )
     L = BandedMatrix(L, (bl, bu))
     R = BandedMatrix(R) 
     L_shift = BandedMatrix(L_shift)
@@ -45,10 +59,23 @@ function -(op::DiffOp2D{T}, z::FloatOrComplex) where T
 end
 
 
-function ultras2DMat(n::Int, K::Int, rank::Int, coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}}, coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, scale_x::T3, scale_y::T3, T::Type{T2}) where {T1, T2<:FloatOrComplex, T3}
+function ultras2DMat(
+    n::Int,
+    K::Int,
+    rank::Int,
+    coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}},
+    coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}},
+    scale_x::T3,
+    scale_y::T3,
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex, T3}
     M_ultras2D = spzeros(T, n^2, n^2)
     for i = 1:rank 
-        M_ultras2D += kron(ultrasMat(n, K, scale_x, coeffs_x[i], T), ultrasMat(n, K, scale_y, coeffs_y[i], T))
+        M_ultras2D += kron(
+            ultrasMat(n, K, scale_x, coeffs_x[i], T; coeff_basis = coeff_basis),
+            ultrasMat(n, K, scale_y, coeffs_y[i], T; coeff_basis = coeff_basis),
+        )
     end
     return M_ultras2D
 end
@@ -99,7 +126,9 @@ end
 
 function diffOp2DMat(n::Int, K::Int, rank::Int, 
     coeffs_x::Vector{<:Tuple{Vararg{Vector{T1}}}}, 
-    coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, bcType::String, bcOrder::Int, dom_x::Interval, dom_y::Interval, T::Type{T2}) where {T1, T2<:FloatOrComplex}
+    coeffs_y::Vector{<:Tuple{Vararg{Vector{T1}}}}, bcType::String, bcOrder::Int, dom_x::Interval, dom_y::Interval, T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex}
 
     ~, bu_bRC, bl_bRC = basisReCombMat(bcType, bcOrder, 10, T)
 
@@ -111,7 +140,7 @@ function diffOp2DMat(n::Int, K::Int, rank::Int,
 
     scale_x = 2/(dom_x.right - dom_x.left)
     scale_y = 2/(dom_y.right - dom_y.left)
-    M_ultras2D = ultras2DMat(tempn, K, rank, coeffs_x, coeffs_y, scale_x, scale_y, T)
+    M_ultras2D = ultras2DMat(tempn, K, rank, coeffs_x, coeffs_y, scale_x, scale_y, T; coeff_basis = coeff_basis)
 
     M_bRC, ~ = basisReCombMat(bcType, bcOrder, tempn-bl_bRC, T)
     M_bRC = kron(M_bRC, M_bRC)
@@ -130,14 +159,16 @@ function diffOp2DMat(n::Int, K::Int, rank::Int,
 
     # construct R
     S = convertMat(n, 0, K, T)
-    w = spdiagm(n, n, sqrt.(Vector{T}((2*(0:n-1).+1)/2)))
+    idxR = T.(0:n-1)
+    w = spdiagm(n, n, sqrt.((T(2) .* idxR .+ one(T)) ./ T(2)))
     R = kron(S*w, S*w)
     index_R = reOrder(n, n)
     R = R[index_R, index_R]
 
     # construct M_bRC
     M_bRC, ~ = basisReCombMat(bcType, bcOrder, n, T)
-    w = spdiagm(n+bl_bRC, n+bl_bRC, sqrt.(Vector{T}(2 ./(2*(0:n-1+bl_bRC).+1))))
+    idxL = T.(0:n-1+bl_bRC)
+    w = spdiagm(n + bl_bRC, n + bl_bRC, sqrt.(T(2) ./ (T(2) .* idxL .+ one(T))))
     M_bRC = kron(w*M_bRC, w*M_bRC)
     M_bRC = M_bRC[reOrder(n+bl_bRC, n+bl_bRC), reOrder(n, n)]
 
@@ -145,8 +176,6 @@ function diffOp2DMat(n::Int, K::Int, rank::Int,
     return L, R, L_shift, M_bRC, bu_reOrdered, bl_reOrdered
 
 end
-
-
 
 
 

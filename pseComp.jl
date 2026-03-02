@@ -25,7 +25,8 @@ function checkConv(H, β, tol)
     idx = sortperm(d, rev=true)
     d = d[idx]
     res = res[idx]
-    tolmax = 100*eps(1.0)*abs.(d[1])^(3/2)
+    # Type-aware machine floor: BigFloat should not use Float64 epsilon.
+    tolmax = 100 * eps(real(eltype(H))) * abs(d[1])^(3/2)
     isconv = res[1] < max(tol*abs(d[1]), tolmax)
     return isconv, d, Y, idx
 end
@@ -50,7 +51,7 @@ function orthogonalize!(U::AbstractVecOrMat{T}, numax::Int, w::AbstractVector{T}
         work[nw+1:nw_next] .= zero(T)
         # reorthogonalize
         mul!(workorth[1:nU], U[1:nw_next, :]', work[1:nw_next])
-        gemv!('N', -one(T), U[1:nw_next, :], workorth[1:nU], one(T), work[1:nw_next])
+        mul!(work[1:nw_next], U[1:nw_next, :], workorth[1:nU], -one(T), one(T))
         return work[1:nw_next]
     end 
 end
@@ -66,10 +67,10 @@ function simpleReorthogonalize!(U::AbstractVecOrMat{T}, numax::Int, w::AbstractV
         work[nw+1:nw_next] .= zero(T)
         # reorthogonalize
         mul!(workorth[1:nU], U[1:nw_next, :]', work[1:nw_next])
-        gemv!('N', -one(T), U[1:nw_next, :], workorth[1:nU], one(T), work[1:nw_next])
+        mul!(work[1:nw_next], U[1:nw_next, :], workorth[1:nU], -one(T), one(T))
         # reorthogonalize twice
         mul!(workorth[1:nU], U[1:nw_next, :]', work[1:nw_next])
-        gemv!('N', -one(T), U[1:nw_next, :], workorth[1:nU], one(T), work[1:nw_next])
+        mul!(work[1:nw_next], U[1:nw_next, :], workorth[1:nU], -one(T), one(T))
         return work[1:nw_next]
     end 
 end
@@ -98,7 +99,7 @@ end
 
 
 # inverse Lanczos method: pay attention to dimension mismatches
-function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int, p::Int, tol::AbstractFloat, tolSolve::AbstractFloat,reOrth::Bool, stopCrit::String,  U::AbstractMatrix{T}, worku::AbstractVector{T}, workv::AbstractVector{T}, workw::AbstractVector{T}, workorth::AbstractVector{T}, H::AbstractMatrix{T1}) where {T<:FloatOrComplex, T1<:AbstractFloat}
+function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int, p::Int, tol::AbstractFloat, tolSolve::AbstractFloat,reOrth::Bool, stopCrit::String,  U::AbstractMatrix{T}, worku::AbstractVector{T}, workv::AbstractVector{T}, workw::AbstractVector{T}, workorth::AbstractVector{T}, H::AbstractMatrix{T1}; return_meta::Bool=false, return_hist::Bool=false) where {T<:FloatOrComplex, T1<:AbstractFloat}
     N = op.N
     sizeU = 1
     numax = 0
@@ -109,9 +110,12 @@ function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int
     d = zero(T)
     d_old = zero(real(T))
     pse_z = zero(real(T))
+    lanczos_steps = 0
+    pse_hist = return_hist ? Vector{real(T)}() : nothing
     @views @inbounds begin
     for mm = 1:maxit 
         for jj = sizeU:p
+            lanczos_steps += 1
             copytoFill0!(U[:, jj], u)
             numax = max(numax, length(u))
             v = adaptiveQrSolve!(op, u, workv, tolSolve)
@@ -150,7 +154,10 @@ function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int
                 H[jj, jj+1] = H[jj+1, jj] = β
             end
             # chech convergence
-            if stopCrit == "pre"
+            if stopCrit == "fixed"
+                @views _, d, Y, idx = checkConv(H[1:jj, 1:jj], β, tol)
+                isconv = false
+            elseif stopCrit == "pre"
                 @views isconv, d, Y, idx = checkConv_pre(H[1:jj, 1:jj], d_old, tol)
             else
                 @views isconv, d, Y, idx = checkConv(H[1:jj, 1:jj], β, tol)
@@ -162,16 +169,35 @@ function invLanczos(op::Op{T}, op_conj::Op{T}, u0::AbstractVector{T}, maxit::Int
                 println("ill-condtion")
                 pse_z = eps(real(T))
             end
+            if return_hist
+                push!(pse_hist, pse_z)
+            end
             if isconv==1
                 # println("converged ", pse_z)
-                return pse_z, numax
+                if return_meta && return_hist
+                    return pse_z, numax, lanczos_steps, pse_hist
+                elseif return_meta
+                    return pse_z, numax, lanczos_steps
+                elseif return_hist
+                    return pse_z, numax, pse_hist
+                else
+                    return pse_z, numax
+                end
             end
         end
 
         if mm == maxit
             # maximum number of iterations reached.
             # @warn "consider increasing the maximum number of iterations"
-            return pse_z, numax
+            if return_meta && return_hist
+                return pse_z, numax, lanczos_steps, pse_hist
+            elseif return_meta
+                return pse_z, numax, lanczos_steps
+            elseif return_hist
+                return pse_z, numax, pse_hist
+            else
+                return pse_z, numax
+            end
         else 
             # restart size
             k = ceil(Int, p/2)

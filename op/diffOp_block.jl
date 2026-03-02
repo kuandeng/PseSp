@@ -12,8 +12,20 @@ mutable struct DiffOpBlock{T<:FloatOrComplex} <: Op{T}
 end
 
 
-function DiffOpBlock(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs::Vector{<:Tuple{Vararg{Vector{T}}}}, bcType::String, dom::Interval, shift::T) where {T<:FloatOrComplex}
-    L, R, L_shift, M_bRC, bu, bl = diffOpBlockMat(N, K, blockSize, map, coeffs, bcType, dom, T)
+function DiffOpBlock(
+    N::Int,
+    K::Int,
+    blockSize::Int,
+    map::Vector{Int},
+    coeffs::Vector{<:Tuple{Vararg{Vector{T}}}},
+    bcType::String,
+    dom::Interval,
+    shift::T;
+    coeff_basis::Symbol = :chebT,
+) where {T<:FloatOrComplex}
+    L, R, L_shift, M_bRC, bu, bl = diffOpBlockMat(
+        N, K, blockSize, map, coeffs, bcType, dom, T; coeff_basis = coeff_basis
+    )
     L = BandedMatrix(L, (bl, bu))
     R = BandedMatrix(R) 
     L_shift = BandedMatrix(L_shift)
@@ -70,7 +82,17 @@ function bandWidthBlock(K::Int, blockSize::Int, coeffs::Vector{<:Tuple{Vararg{Ve
     return blockSize*maximum(bu), blockSize*maximum(bl)
 end
 
-function diffOpBlockMat(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs::Vector{<:Tuple{Vararg{Vector{T1}}}}, bcType::String, dom::Interval, T::Type{T2}) where {T1, T2<:FloatOrComplex}
+function diffOpBlockMat(
+    N::Int,
+    K::Int,
+    blockSize::Int,
+    map::Vector{Int},
+    coeffs::Vector{<:Tuple{Vararg{Vector{T1}}}},
+    bcType::String,
+    dom::Interval,
+    T::Type{T2};
+    coeff_basis::Symbol = :chebT,
+) where {T1, T2<:FloatOrComplex}
     bu, bl = bandWidthBlock(K, blockSize, coeffs)
     ~, bu_bRC, bl_bRC = basisReCombMatBlock(bcType, 10, T)
     tempN = N+5*(bl + bl_bRC)+bl_bRC 
@@ -80,7 +102,9 @@ function diffOpBlockMat(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs
     scale = 2/(dom.right - dom.left)
     M_ultras = spzeros(T, tempN_total, tempN_total)
     for i in 1:blockSize
-        M_ultras[i:blockSize:end, i:blockSize:end] = ultrasMat(tempN, K, scale, coeffs[i], T)
+        M_ultras[i:blockSize:end, i:blockSize:end] = ultrasMat(
+            tempN, K, scale, coeffs[i], T; coeff_basis = coeff_basis
+        )
     end
 
     M_bRC, ~ = basisReCombMatBlock(bcType, tempN_total-bl_bRC, T)
@@ -100,8 +124,10 @@ function diffOpBlockMat(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs
 
     # construct R
     R = spzeros(T, tempN_total, tempN_total)
+    idxR = T.(0:tempN-1)
+    wR = sqrt.((T(2) .* idxR .+ one(T)) ./ T(2))
     for i in 1:blockSize
-        R[i:blockSize:end, map[i]:blockSize:end] .= convertMat(tempN, 0, K, T)*spdiagm(tempN, tempN, sqrt.(Vector{T}((2*(0:tempN-1).+1)/2)))
+        R[i:blockSize:end, map[i]:blockSize:end] .= convertMat(tempN, 0, K, T) * spdiagm(tempN, tempN, wR)
     end
     R = R[1:N_total+blockSize-1, 1:N_total]
 
@@ -110,7 +136,8 @@ function diffOpBlockMat(N::Int, K::Int, blockSize::Int, map::Vector{Int}, coeffs
     weight = zeros(T, N_total+bl_bRC)
     for i = 1:blockSize
         idx = i:blockSize:N_total+bl_bRC
-        weight[idx] .= sqrt.(2.0./((2*(0:length(idx)-1).+1)))
+        idxW = T.(0:length(idx)-1)
+        weight[idx] .= sqrt.(T(2) ./ (T(2) .* idxW .+ one(T)))
     end
     w = spdiagm(N_total+bl_bRC, N_total+bl_bRC, weight)
     M_bRC = w*M_bRC
